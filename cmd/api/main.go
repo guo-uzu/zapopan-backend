@@ -3,12 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"log"
 	"net/http"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
+	"gonum.org/v1/plot/vg/draw"
 )
 
 type RequestData struct {
@@ -30,21 +32,39 @@ func exportPngHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
+
 	values := make(plotter.Values, 0, len(requests))
+	labels := make([]string, 0, len(requests))
 	for _, value := range requests {
 		values = append(values, float64(value.N_Reports))
+		labels = append(labels, value.Name)
 	}
 	p := plot.New()
-	p.Title.Text = "Test"
+	p.X.Tick.Label.Rotation = 0.5
+	p.X.Tick.Label.XAlign = draw.XRight
+	p.X.Tick.Label.YAlign = draw.YCenter
+	p.X.Padding = vg.Points(10)
+	p.Y.Padding = vg.Points(10)
+	p.X.Tick.Label.Font.Size = vg.Points(10)
+	p.Title.Text = "Reportes por categoría"
 	p.Y.Label.Text = "Número de reportes"
-	bar, err := plotter.NewBarChart(values, vg.Points(20))
+	bar, err := plotter.NewBarChart(values, vg.Points(30))
 	if err != nil {
 		log.Fatal(err)
 	}
+	bar.Color = color.RGBA{R: 0, G: 192, B: 255, A: 255}
+	bar.LineStyle.Width = vg.Length(0)
 	p.Add(bar)
-	if err := p.Save(5*vg.Inch, 3*vg.Inch, "barchart.pdf"); err != nil {
+	p.NominalX(labels...)
+	if err := p.Save(10*vg.Inch, 6*vg.Inch, "barchart.png"); err != nil {
 		panic(err)
 	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Disposition", `attachment; filename="reporte.png"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf.Bytes())
 }
 
 func corsHandler(h http.Handler) http.HandlerFunc {
