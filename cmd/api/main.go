@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"image/color"
@@ -13,6 +14,13 @@ import (
 	"gonum.org/v1/plot/vg/draw"
 )
 
+type RawData struct {
+	Data     []RequestData `json:"data"`
+	Title    string        `json:"title"`
+	DateFrom string        `json:"dateFrom"`
+	DateTo   string        `json:"dateTo"`
+}
+
 type RequestData struct {
 	Id        int    `json:"id"`
 	Name      string `json:"name"`
@@ -24,8 +32,8 @@ func exportPngHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var requests []RequestData
-	err := json.NewDecoder(r.Body).Decode(&requests)
+	var rawData RawData
+	err := json.NewDecoder(r.Body).Decode(&rawData)
 	if err != nil {
 		fmt.Println("Error")
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -33,9 +41,9 @@ func exportPngHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	values := make(plotter.Values, 0, len(requests))
-	labels := make([]string, 0, len(requests))
-	for _, value := range requests {
+	values := make(plotter.Values, 0, len(rawData.Data))
+	labels := make([]string, 0, len(rawData.Data))
+	for _, value := range rawData.Data {
 		values = append(values, float64(value.N_Reports))
 		labels = append(labels, value.Name)
 	}
@@ -46,7 +54,8 @@ func exportPngHandler(w http.ResponseWriter, r *http.Request) {
 	p.X.Padding = vg.Points(10)
 	p.Y.Padding = vg.Points(10)
 	p.X.Tick.Label.Font.Size = vg.Points(10)
-	p.Title.Text = "Reportes por categoría"
+	title := fmt.Sprintf("%s\n(%s - %s)", rawData.Title, rawData.DateFrom, rawData.DateTo)
+	p.Title.Text = title
 	p.Y.Label.Text = "Número de reportes"
 	bar, err := plotter.NewBarChart(values, vg.Points(30))
 	if err != nil {
@@ -56,15 +65,21 @@ func exportPngHandler(w http.ResponseWriter, r *http.Request) {
 	bar.LineStyle.Width = vg.Length(0)
 	p.Add(bar)
 	p.NominalX(labels...)
-	if err := p.Save(10*vg.Inch, 6*vg.Inch, "barchart.png"); err != nil {
-		panic(err)
+	var buf bytes.Buffer
+	wt, err := p.WriterTo(10*vg.Inch, 6*vg.Inch, "png")
+	if err != nil {
+		log.Fatal(err)
 	}
-
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Content-Disposition", `attachment; filename="reporte.png"`)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
+	_, errWrite := wt.WriteTo(&buf)
+	if errWrite != nil {
+		log.Fatal(errWrite)
+	}
+	w.Write(buf.Bytes())
+	return
 }
 
 func corsHandler(h http.Handler) http.HandlerFunc {
